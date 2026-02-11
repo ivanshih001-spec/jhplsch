@@ -1,0 +1,2849 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>聚鴻塑膠股份有限公司 - 排程系統</title>
+
+    <!-- React & ReactDOM -->
+    <script
+      crossorigin
+      src="https://unpkg.com/react@18/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"
+    ></script>
+
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- SheetJS for Excel Import -->
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- html2pdf.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <!-- Firebase SDKs (僅保留必要的 App 和 Firestore) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+    <style>
+      body {
+        font-family: "Noto Sans TC", sans-serif;
+        background-color: #f1f5f9;
+      }
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #f1f1f1;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+      }
+
+      .compact-input {
+        padding: 2px 4px;
+        font-size: 0.75rem;
+        line-height: 1rem;
+        height: 1.5rem;
+      }
+
+      /* 橫向排程軌道樣式 */
+      .suggestion-area {
+        background-color: #fffbeb; /* amber-50 */
+        border-bottom: 2px dashed #f59e0b; /* amber-500 */
+        padding: 4px;
+        margin-bottom: 0px;
+        min-height: 80px;
+        max-height: 300px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        flex-shrink: 0;
+      }
+      .suggestion-area.drag-over {
+        background-color: #fef3c7;
+      }
+
+      /* 正式排程區 (垂直) */
+      .confirmed-area {
+        background-color: #f8fafc; /* slate-50 */
+        flex: 1;
+        padding: 4px;
+        overflow-y: auto;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-height: 150px;
+      }
+      .confirmed-area.locked {
+        background-color: #f3f4f6;
+        background-image: repeating-linear-gradient(
+            45deg,
+            #e5e7eb 25%,
+            transparent 25%,
+            transparent 75%,
+            #e5e7eb 75%,
+            #e5e7eb
+          ),
+          repeating-linear-gradient(
+            45deg,
+            #e5e7eb 25%,
+            #f9fafb 25%,
+            #f9fafb 75%,
+            #e5e7eb 75%,
+            #e5e7eb
+          );
+        background-position: 0 0, 10px 10px;
+        background-size: 20px 20px;
+        pointer-events: none; /* 鎖定時禁止滑鼠互動 */
+      }
+
+      /* 垂直拖曳插入線指示器 */
+      .drop-indicator {
+        height: 4px;
+        width: 100%;
+        background-color: #3b82f6; /* blue-500 */
+        margin: 2px 0;
+        position: relative;
+        z-index: 10;
+        pointer-events: none;
+        border-radius: 2px;
+        flex-shrink: 0;
+      }
+
+      .drop-indicator-vertical {
+        display: none;
+      }
+
+      /* 標籤樣式 */
+      .badge {
+        display: inline-block;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 10px;
+        line-height: 1.2;
+        font-weight: 600;
+      }
+      .badge-gray {
+        background-color: #e5e7eb;
+        color: #374151;
+        border: 1px solid #d1d5db;
+      }
+      .badge-material {
+        background-color: #dbeafe;
+        color: #1e40af;
+        border: 1px solid #bfdbfe;
+      }
+      .badge-color {
+        background-color: #f3e8ff;
+        color: #6b21a8;
+        border: 1px solid #e9d5ff;
+      }
+      .badge-purple {
+        background-color: #f3e8ff;
+        color: #7e22ce;
+        border: 1px solid #d8b4fe;
+      }
+
+      /* 排程卡片樣式 (100% 寬度) */
+      .order-card {
+        background: white;
+        border-left: 4px solid #3b82f6;
+        border-radius: 4px;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        padding: 6px;
+        font-size: 12px;
+        position: relative;
+        cursor: grab;
+        white-space: normal;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .order-card.suggestion { border-left-color: #f59e0b; } /* 橘色邊框 */
+      .order-card.scheduled { border-left-color: #3b82f6; } /* 藍色邊框 */
+
+      .order-card:active {
+        cursor: grabbing;
+        transform: scale(0.98);
+      }
+      .order-card:hover {
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      }
+
+      /* 右鍵選單樣式 */
+      .context-menu {
+        position: fixed;
+        z-index: 9999;
+        background: white;
+        border: 1px solid #cbd5e1;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
+          0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        border-radius: 6px;
+        padding: 4px 0;
+        min-width: 160px;
+        max-height: 300px;
+        overflow-y: auto;
+        animation: fadeIn 0.1s ease-out;
+      }
+      .context-menu-item {
+        padding: 8px 16px;
+        font-size: 13px;
+        color: #334155;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .context-menu-item:hover {
+        background-color: #f1f5f9;
+        color: #0f172a;
+      }
+      .context-menu-header {
+        padding: 8px 16px;
+        font-size: 11px;
+        font-weight: bold;
+        color: #64748b;
+        background-color: #f8fafc;
+        border-bottom: 1px solid #e2e8f0;
+      }
+
+      /* 表頭排序樣式 */
+      th.sortable {
+        cursor: pointer;
+        user-select: none;
+        transition: background-color 0.2s;
+      }
+      th.sortable:hover {
+        background-color: #e2e8f0;
+      }
+
+      /* 螢幕顯示時隱藏列印區塊 */
+      #print-area {
+        display: none;
+      }
+
+      /* 列印專用樣式 */
+      @media print {
+        @page {
+          size: A4 landscape;
+          margin: 1cm;
+        }
+
+        /* 隱藏主應用程式介面 */
+        .app-container > header,
+        .app-container > main,
+        .app-container > .context-menu,
+        .no-print {
+          display: none !important;
+        }
+
+        /* 顯示並設定列印區塊 */
+        #print-area {
+          display: block !important;
+          position: relative;
+          width: 100%;
+          color: black;
+          background-color: white;
+          font-family: "Microsoft JhengHei", sans-serif;
+        }
+
+        body,
+        html,
+        #root,
+        .app-container {
+          height: auto !important;
+          overflow: visible !important;
+          background-color: white;
+          margin: 0;
+          padding: 0;
+          display: block !important;
+        }
+
+        .print-header {
+          background-color: #eee;
+          padding: 5px;
+          font-weight: bold;
+          border-bottom: 1px solid #000;
+          font-size: 14px;
+          color: #000;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        .print-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 10px;
+          margin-bottom: 5px;
+        }
+
+        .print-table th,
+        .print-table td {
+          border: 1px solid #ccc;
+          padding: 3px;
+          text-align: left;
+          color: #000;
+        }
+
+        .print-table th {
+          background-color: #f8f8f8;
+          font-weight: bold;
+          text-align: center;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        .print-table td.center {
+          text-align: center;
+        }
+        .print-table td.num {
+          text-align: right;
+        }
+
+        .print-machine-block {
+          margin-bottom: 20px;
+          page-break-inside: avoid;
+          break-inside: avoid;
+          border: 1px solid #333;
+          background: #fff;
+        }
+
+        .print-title {
+          text-align: center;
+          font-size: 20px;
+          margin-bottom: 15px;
+          font-weight: bold;
+          color: #000;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+      // --- Firebase Initialization (Global) ---
+      // TODO: 請在此處填入您的 Firebase 設定
+      const firebaseConfig = {
+        apiKey: "您的_API_KEY",
+        authDomain: "您的專案ID.firebaseapp.com",
+        projectId: "您的專案ID",
+        storageBucket: "您的專案ID.appspot.com",
+        messagingSenderId: "您的ID",
+        appId: "您的ID",
+      };
+
+      // Initialize Firebase safely
+      if (
+        typeof firebase !== "undefined" &&
+        !firebase.apps.length &&
+        firebaseConfig.apiKey !== "您的_API_KEY"
+      ) {
+        try {
+          firebase.initializeApp(firebaseConfig);
+          window.db = firebase.firestore();
+          console.log("Firebase initialized successfully");
+        } catch (e) {
+          console.warn("Firebase initialization failed:", e);
+        }
+      }
+
+      const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+      // --- 安全的圖示元件 ---
+      const Icon = React.memo(({ name, size = 16, className = "" }) => {
+        const iconKey = React.useMemo(() => {
+          if (!name) return "";
+          return name
+            .split("-")
+            .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+            .join("");
+        }, [name]);
+
+        const svgHtml = React.useMemo(() => {
+          if (
+            typeof lucide !== "undefined" &&
+            lucide.icons &&
+            lucide.icons[iconKey]
+          ) {
+            try {
+              const element = lucide.createElement(lucide.icons[iconKey]);
+              element.setAttribute("width", size);
+              element.setAttribute("height", size);
+              if (className) element.setAttribute("class", className);
+              return element.outerHTML;
+            } catch (e) {
+              return "";
+            }
+          }
+          return "";
+        }, [iconKey, size, className]);
+
+        if (!svgHtml)
+          return (
+            <span
+              style={{ width: size, height: size, display: "inline-block" }}
+            />
+          );
+        return (
+          <span
+            dangerouslySetInnerHTML={{ __html: svgHtml }}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              verticalAlign: "middle",
+            }}
+          />
+        );
+      });
+
+      const MACHINE_IDS = [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+      ];
+      const INITIAL_MACHINES_DEFAULT = MACHINE_IDS.map((mid, i) => ({
+        id: `m_${mid}`,
+        name: `機台 ${mid}`,
+        dbIndex: i + 1,
+        startTime: "08:00",
+        endTime: "17:00",
+      }));
+
+      const COLUMN_LABELS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
+      const DEFAULT_EXCEL_HEADERS = [
+        "A",
+        "產品名稱(B)",
+        "尺寸/材質(C)",
+        "D",
+        "E",
+        "模穴(F)",
+        "模重(G)",
+        "H",
+        "I",
+        "成型時間(J)",
+      ];
+      const DEFAULT_MACHINE_HEADERS = [
+        "項目",
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+      ];
+
+      // --- Firebase Hook (自動同步) ---
+      function usePersistentState(key, defaultValue) {
+        const [value, setValue] = useState(() => {
+          try {
+            const local = localStorage.getItem(key);
+            if (local === null || local === "undefined") return defaultValue;
+            const parsed = JSON.parse(local);
+            if (Array.isArray(defaultValue) && !Array.isArray(parsed))
+              return defaultValue;
+            return parsed === null ? defaultValue : parsed;
+          } catch (e) {
+            return defaultValue;
+          }
+        });
+
+        useEffect(() => {
+          if (typeof db !== "undefined" && db) {
+            const unsubscribe = db
+              .collection("production_data")
+              .doc(key)
+              .onSnapshot(
+                (doc) => {
+                  if (doc.exists) {
+                    const data = doc.data().value;
+                    if (data !== undefined && data !== null) {
+                      setValue(data);
+                      localStorage.setItem(key, JSON.stringify(data));
+                    }
+                  }
+                },
+                (err) => console.log("Offline mode or sync error")
+              );
+            return () => unsubscribe();
+          }
+        }, [key]);
+
+        const setStoredValue = (newValue) => {
+          const valueToStore =
+            newValue instanceof Function ? newValue(value) : newValue;
+          setValue(valueToStore);
+          localStorage.setItem(key, JSON.stringify(valueToStore));
+
+          if (typeof db !== "undefined" && db) {
+            db.collection("production_data")
+              .doc(key)
+              .set({ value: valueToStore }, { merge: true })
+              .catch((e) => console.log("Cloud save failed"));
+          }
+        };
+
+        return [value, setStoredValue];
+      }
+
+      // --- 工具 ---
+      const timeToMinutes = (timeStr) => {
+        if (!timeStr) return 0;
+        const [h, m] = timeStr.split(":").map(Number);
+        return h * 60 + m;
+      };
+      const minutesToTime = (totalMinutes) => {
+        let h = Math.floor(totalMinutes / 60) % 24;
+        let m = totalMinutes % 60;
+        return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      };
+      const calculateDuration = (qty, cycleTime, cavities) => {
+        if (!qty || !cycleTime || !cavities) return 0;
+        return Math.ceil(((qty / cavities) * cycleTime) / 60);
+      };
+      const formatDuration = (totalMinutes) => {
+        if (!totalMinutes) return "0M";
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        return hours > 0 ? `${hours}H${minutes}M` : `${minutes}M`;
+      };
+      const formatTimeChinese = (timeStr) => {
+        if (!timeStr) return "";
+        const [h, m] = timeStr.split(":").map(Number);
+        const period = h < 12 ? "上午" : "下午";
+        const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
+        return `${period} ${String(displayH).padStart(2, "0")}:${String(
+          m
+        ).padStart(2, "0")}`;
+      };
+      const normalizeStr = (str) => {
+        if (!str) return "";
+        return String(str)
+          .replace(/[\uFF01-\uFF5E]/g, (c) =>
+            String.fromCharCode(c.charCodeAt(0) - 0xfee0)
+          )
+          .replace(/\u3000/g, " ")
+          .toUpperCase()
+          .replace(/\s+/g, "");
+      };
+      const formatMachineValue = (val) => {
+        if (!val) return "";
+        return /^-?\d+(\.\d+)?$/.test(val) ? Math.round(parseFloat(val)) : val;
+      };
+      const parseExcelDate = (dateStr) => {
+        if (!dateStr) return "";
+        if (typeof dateStr === "number") {
+          const date = new Date((dateStr - 25569) * 86400 * 1000);
+          return date.toISOString().split("T")[0];
+        }
+        const str = String(dateStr).trim();
+        const parts = str.split(/[-/]/);
+        if (parts.length === 3) {
+          let y = parseInt(parts[0], 10);
+          const m = parseInt(parts[1], 10);
+          const d = parseInt(parts[2], 10);
+          if (y < 100) y += 2000;
+          return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(
+            2,
+            "0"
+          )}`;
+        }
+        return "";
+      };
+
+      const findBestMachine = (
+        productWeight,
+        material,
+        machineDB,
+        machineIds
+      ) => {
+        if (!productWeight || !material || !machineDB || machineDB.length === 0)
+          return "m_A";
+        const materialRow = machineDB.find(
+          (row) => normalizeStr(row[0]) === normalizeStr(material)
+        );
+        if (!materialRow) return "m_A";
+        let candidates = [];
+        for (let i = 0; i < machineIds.length; i++) {
+          const mid = machineIds[i];
+          if (mid === "9" || mid === "10") continue;
+          const machineWeightCap = parseFloat(materialRow[i + 1]);
+          if (isNaN(machineWeightCap)) continue;
+          if (machineWeightCap >= productWeight) {
+            candidates.push({
+              id: `m_${mid}`,
+              cap: machineWeightCap,
+              diff: machineWeightCap - productWeight,
+            });
+          }
+        }
+        if (candidates.length > 0) {
+          candidates.sort((a, b) => a.diff - b.diff);
+          return candidates[0].id;
+        }
+        return "m_A";
+      };
+
+      const diffDays = (d1, d2) => {
+        const date1 = new Date(d1);
+        const date2 = new Date(d2);
+        return Math.ceil((date2 - date1) / (1000 * 60 * 60 * 24));
+      };
+
+      const checkIsWorkDay = (dateStr, settings) => {
+        const date = new Date(dateStr);
+        const dayOfWeek = date.getDay();
+        if (settings[dateStr]) return settings[dateStr] === "work";
+        return dayOfWeek !== 0 && dayOfWeek !== 6;
+      };
+
+      const App = () => {
+        const [activeTab, setActiveTab] = useState("board");
+        const [boardViewMode, setBoardViewMode] = useState("grid");
+
+        const [machines, setMachines] = usePersistentState(
+          "jh_machines",
+          INITIAL_MACHINES_DEFAULT
+        );
+        const [viewDate, setViewDate] = useState(
+          new Date().toISOString().split("T")[0]
+        );
+        const [startDate, setStartDate] = useState(
+          new Date().toISOString().split("T")[0]
+        );
+
+        const [calendarSettings, setCalendarSettings] = usePersistentState(
+          "jh_calendar",
+          {}
+        );
+        const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
+        const [maintenanceRecords, setMaintenanceRecords] = usePersistentState(
+          "jh_maintenance",
+          []
+        );
+        const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] =
+          useState(false);
+        const [currentMaintenanceMachineId, setCurrentMaintenanceMachineId] =
+          useState(null);
+
+        const [globalStartTime, setGlobalStartTime] = usePersistentState(
+          "jh_global_start",
+          "08:00"
+        );
+        const [globalEndTime, setGlobalEndTime] = usePersistentState(
+          "jh_global_end",
+          "17:00"
+        );
+
+        const [activeDbTab, setActiveDbTab] = useState("mold");
+        const [moldDB, setMoldDB] = usePersistentState("jh_mold_db", []);
+        const [dbExcelHeaders, setDbExcelHeaders] = usePersistentState(
+          "jh_mold_headers",
+          DEFAULT_EXCEL_HEADERS
+        );
+        const [machineDB, setMachineDB] = usePersistentState(
+          "jh_machine_db",
+          []
+        );
+        const [machineDbHeaders, setMachineDbHeaders] = usePersistentState(
+          "jh_machine_headers",
+          DEFAULT_MACHINE_HEADERS
+        );
+
+        const [isMachineDbEditing, setIsMachineDbEditing] = useState(false);
+        const [orders, setOrders] = usePersistentState("jh_orders", []);
+
+        const [draggedOrder, setDraggedOrder] = useState(null);
+        const [dragOverTarget, setDragOverTarget] = useState(null);
+        const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
+        const [importError, setImportError] = useState("");
+        const [editingId, setEditingId] = useState(null);
+
+        const [lockedDates, setLockedDates] = usePersistentState(
+          "jh_locked_dates",
+          {}
+        );
+        const isCurrentDateLocked = lockedDates[viewDate] || false;
+
+        const [contextMenu, setContextMenu] = useState(null);
+        const [importFile, setImportFile] = useState(null);
+
+        const [sortConfig, setSortConfig] = useState({
+          key: null,
+          direction: "ascending",
+        });
+        const [orderListMode, setOrderListMode] = useState("pending");
+
+        const [tempCalDate, setTempCalDate] = useState("");
+        const [tempCalType, setTempCalType] = useState("off");
+        const [tempMaintDate, setTempMaintDate] = useState(viewDate);
+        const [tempMaintType, setTempMaintType] = useState("full");
+        const [tempMaintStart, setTempMaintStart] = useState("12:00");
+        const [tempMaintEnd, setTempMaintEnd] = useState("13:00");
+
+        const [tempMachineStart, setTempMachineStart] = useState("08:00");
+        const [tempMachineEnd, setTempMachineEnd] = useState("17:00");
+
+        const moldFileInputRef = useRef(null);
+        const orderFileInputRef = useRef(null);
+        const machineFileInputRef = useRef(null);
+
+        useEffect(() => {
+          const handleClick = () => setContextMenu(null);
+          document.addEventListener("click", handleClick);
+          return () => document.removeEventListener("click", handleClick);
+        }, []);
+
+        const applyGlobalStartTime = () =>
+          setMachines((prev) =>
+            prev.map((m) => ({ ...m, startTime: globalStartTime }))
+          );
+        const applyGlobalEndTime = () =>
+          setMachines((prev) =>
+            prev.map((m) => ({ ...m, endTime: globalEndTime }))
+          );
+
+        // 清除資料功能
+        const clearAllData = () => {
+          if (confirm("確定要重置所有系統資料嗎？(無法復原)")) {
+            setOrders([]);
+            setMachines(INITIAL_MACHINES_DEFAULT);
+            setMoldDB([]);
+            setMachineDB([]);
+            localStorage.clear();
+            window.location.reload();
+          }
+        };
+
+        // --- 訂單列表：排序 & 重複檢查 ---
+        const safeOrders = useMemo(() => {
+          return Array.isArray(orders) ? orders : [];
+        }, [orders]);
+
+        const duplicateGroups = useMemo(() => {
+          const counts = {};
+          safeOrders.forEach((o) => {
+            if (!o) return;
+            const key = `${o.displayPartNo || ""}|${o.sizeVal || ""}|${
+              o.material || ""
+            }|${o.color || ""}`;
+            counts[key] = (counts[key] || 0) + 1;
+          });
+          return counts;
+        }, [safeOrders]);
+
+        const filteredOrders = useMemo(() => {
+          return safeOrders.filter(
+            (o) => o && (orderListMode === "locked" ? o.isLocked : !o.isLocked)
+          );
+        }, [safeOrders, orderListMode]);
+
+        const sortedOrders = useMemo(() => {
+          let targetOrders = [...filteredOrders];
+          if (sortConfig.key !== null) {
+            targetOrders.sort((a, b) => {
+              let aVal = a[sortConfig.key];
+              let bVal = b[sortConfig.key];
+              if (sortConfig.key === "machineId") {
+                const mA = Array.isArray(machines)
+                  ? machines.find((m) => m.id === a.machineId)
+                  : null;
+                const mB = Array.isArray(machines)
+                  ? machines.find((m) => m.id === b.machineId)
+                  : null;
+                aVal = mA?.name || "";
+                bVal = mB?.name || "";
+              }
+              if (aVal < bVal)
+                return sortConfig.direction === "ascending" ? -1 : 1;
+              if (aVal > bVal)
+                return sortConfig.direction === "ascending" ? 1 : -1;
+              return 0;
+            });
+          }
+          return targetOrders;
+        }, [filteredOrders, sortConfig, machines]);
+
+        const requestSort = (key) => {
+          let direction = "ascending";
+          if (sortConfig.key === key && sortConfig.direction === "ascending")
+            direction = "descending";
+          setSortConfig({ key, direction });
+        };
+
+        // --- 核心排程計算 ---
+        const machineSchedules = useMemo(() => {
+          const schedules = {};
+          const dayOffset = diffDays(startDate, viewDate);
+
+          if (!Array.isArray(machines) || machines.length === 0) return {};
+
+          if (dayOffset < 0) {
+            machines.forEach((m) => {
+              schedules[m.id] = {
+                suggested: [],
+                confirmed: [],
+                maintenance: { isFullDay: false, records: [] },
+              };
+            });
+            return schedules;
+          }
+
+          machines.forEach((machine) => {
+            const machineOrders = orders.filter(
+              (o) => o.machineId === machine.id
+            );
+            const suggestedQueue = machineOrders.filter(
+              (o) => o.isSuggestion && !o.isLocked
+            );
+            const confirmedQueue = machineOrders.filter((o) => !o.isSuggestion);
+
+            const safeMaintenanceRecords = Array.isArray(maintenanceRecords)
+              ? maintenanceRecords
+              : [];
+            const todayMaintenance = safeMaintenanceRecords.filter(
+              (r) => r.machineId === machine.id && r.date === viewDate
+            );
+            const isFullDayShutdown = todayMaintenance.some(
+              (r) => r.type === "full"
+            );
+
+            let currentDay = 0;
+            let machineStartMins = timeToMinutes(machine.startTime);
+            let machineEndMins = timeToMinutes(machine.endTime);
+            if (machineEndMins <= machineStartMins) machineEndMins = 24 * 60;
+
+            let currentClockMinutes = machineStartMins;
+            const processedConfirmed = [];
+
+            confirmedQueue.forEach((order, idx) => {
+              let isUrgentViolation = false;
+              if (order.deliveryDate && !order.isLocked) {
+                for (let k = idx + 1; k < confirmedQueue.length; k++) {
+                  const nextOrder = confirmedQueue[k];
+                  if (
+                    nextOrder.deliveryDate &&
+                    new Date(order.deliveryDate) >
+                      new Date(nextOrder.deliveryDate)
+                  ) {
+                    isUrgentViolation = true;
+                    break;
+                  }
+                }
+              }
+
+              const safeMoldDB = Array.isArray(moldDB) ? moldDB : [];
+              const dbEntry = safeMoldDB.find(
+                (m) => normalizeStr(m.colB) === normalizeStr(order.partNo)
+              );
+              const isMissingParams = !dbEntry;
+              const cavities = parseFloat(dbEntry?.colF) || 1;
+              const cycleTime = parseFloat(dbEntry?.colJ) || 30;
+              const baseDuration =
+                calculateDuration(order.qty, cycleTime, cavities) +
+                (parseInt(order.moldChange) || 0) +
+                (parseInt(order.drying) || 0);
+
+              let remainingDuration = baseDuration;
+              let isFirstSegment = true;
+              let loopSafeGuard = 0;
+              while (remainingDuration > 0 && loopSafeGuard < 1000) {
+                loopSafeGuard++;
+                const currentProcessingDate = new Date(startDate);
+                currentProcessingDate.setDate(
+                  currentProcessingDate.getDate() + currentDay
+                );
+                const currentProcessingDateStr = currentProcessingDate
+                  .toISOString()
+                  .split("T")[0];
+
+                if (
+                  !checkIsWorkDay(currentProcessingDateStr, calendarSettings)
+                ) {
+                  currentDay++;
+                  currentClockMinutes = machineStartMins;
+                  continue;
+                }
+                const dayMaint = safeMaintenanceRecords.filter(
+                  (r) =>
+                    r.machineId === machine.id &&
+                    r.date === currentProcessingDateStr
+                );
+                if (dayMaint.some((r) => r.type === "full")) {
+                  currentDay++;
+                  currentClockMinutes = machineStartMins;
+                  continue;
+                }
+                if (currentClockMinutes >= machineEndMins) {
+                  currentDay++;
+                  currentClockMinutes = machineStartMins;
+                  continue;
+                }
+
+                let jumpTo = -1;
+                dayMaint.forEach((m) => {
+                  if (m.type === "range") {
+                    const mStart = timeToMinutes(m.startTime);
+                    const mEnd = timeToMinutes(m.endTime);
+                    if (
+                      currentClockMinutes >= mStart &&
+                      currentClockMinutes < mEnd
+                    ) {
+                      jumpTo = Math.max(jumpTo, mEnd);
+                    }
+                  }
+                });
+                if (jumpTo !== -1) {
+                  currentClockMinutes = jumpTo;
+                  continue;
+                }
+
+                let nextStop = machineEndMins;
+                dayMaint.forEach((m) => {
+                  if (m.type === "range") {
+                    const mStart = timeToMinutes(m.startTime);
+                    if (mStart > currentClockMinutes)
+                      nextStop = Math.min(nextStop, mStart);
+                  }
+                });
+
+                const availableDuration = nextStop - currentClockMinutes;
+                if (availableDuration <= 0) {
+                  currentClockMinutes += 1;
+                  continue;
+                }
+                const allocatable = Math.min(
+                  remainingDuration,
+                  availableDuration
+                );
+
+                if (currentProcessingDateStr === viewDate) {
+                  const startMins = currentClockMinutes;
+                  const endMins = startMins + allocatable;
+                  processedConfirmed.push({
+                    ...order,
+                    uniqueKey: `${order.id}_seg_${startMins}`,
+                    displayDuration: allocatable,
+                    totalDuration: baseDuration,
+                    startTime: minutesToTime(startMins),
+                    endTime: minutesToTime(endMins),
+                    isContinuation: !isFirstSegment,
+                    isCarriedOver: remainingDuration > allocatable,
+                    isMissingParams,
+                    isUrgentViolation,
+                    moldParams: { cycleTime, cavities, ...dbEntry },
+                  });
+                }
+                remainingDuration -= allocatable;
+                currentClockMinutes += allocatable;
+                isFirstSegment = false;
+              }
+            });
+
+            const processedSuggested = suggestedQueue.map((order) => {
+              const safeMoldDB = Array.isArray(moldDB) ? moldDB : [];
+              const dbEntry = safeMoldDB.find(
+                (m) => normalizeStr(m.colB) === normalizeStr(order.partNo)
+              );
+              const isMissingParams = !dbEntry;
+              const cavities = parseFloat(dbEntry?.colF) || 1;
+              const cycleTime = parseFloat(dbEntry?.colJ) || 30;
+              const totalDuration =
+                calculateDuration(order.qty, cycleTime, cavities) +
+                (parseInt(order.moldChange) || 0) +
+                (parseInt(order.drying) || 0);
+              return {
+                ...order,
+                totalDuration,
+                isMissingParams,
+                displayDuration: totalDuration,
+              };
+            });
+
+            schedules[machine.id] = {
+              suggested: processedSuggested,
+              confirmed: processedConfirmed,
+              maintenance: {
+                isFullDay: isFullDayShutdown,
+                records: todayMaintenance,
+              },
+            };
+          });
+          return schedules;
+        }, [
+          safeOrders,
+          machines,
+          moldDB,
+          viewDate,
+          startDate,
+          calendarSettings,
+          maintenanceRecords,
+        ]);
+
+        const handleContextMenu = (e, orderId) => {
+          if (isCurrentDateLocked) return;
+          e.preventDefault();
+          e.stopPropagation();
+          let x = e.clientX;
+          let y = e.clientY;
+          if (x + 160 > window.innerWidth) x = window.innerWidth - 170;
+          if (y + 300 > window.innerHeight) y = window.innerHeight - 310;
+          setContextMenu({ x, y, orderId });
+        };
+        const handleQuickMove = (targetMachineId) => {
+          if (!contextMenu) return;
+          const { orderId } = contextMenu;
+          setOrders((prev) =>
+            prev.map((o) => {
+              if (o.id === orderId) {
+                return { ...o, machineId: targetMachineId, isSuggestion: true };
+              }
+              return o;
+            })
+          );
+          setContextMenu(null);
+        };
+
+        const handleDragStart = (e, orderId, machineId) => {
+          if (isCurrentDateLocked) {
+            e.preventDefault();
+            return;
+          }
+          setDraggedOrder({ orderId, sourceMachineId: machineId });
+          e.dataTransfer.effectAllowed = "move";
+          e.target.style.opacity = "0.5";
+        };
+        const handleDragEnd = (e) => {
+          e.target.style.opacity = "1";
+          setDraggedOrder(null);
+          setDragOverTarget(null);
+        };
+
+        // 垂直拖曳 (Y軸) + 鎖定同欄位 + 自由拖曳
+        const handleItemDragOver = (e, machineId, index, isSuggestionArea) => {
+          if (isCurrentDateLocked) return;
+          e.preventDefault();
+          e.stopPropagation();
+          if (!draggedOrder) return;
+
+          // 允許自由拖曳，不再阻擋 sourceMachineId !== machineId
+
+          const rect = e.currentTarget.getBoundingClientRect();
+          const midY = rect.top + rect.height / 2; // Y 軸判定
+          const position = e.clientY < midY ? "before" : "after";
+          setDragOverTarget({ machineId, index, position, isSuggestionArea });
+        };
+        const handleContainerDragOver = (e, machineId, isSuggestionArea) => {
+          if (isCurrentDateLocked) return;
+          e.preventDefault();
+          // 允許自由拖曳，不再阻擋 sourceMachineId !== machineId
+
+          if (!draggedOrder || dragOverTarget.machineId !== machineId)
+            setDragOverTarget({
+              machineId,
+              index: -1,
+              position: "after",
+              isSuggestionArea,
+            });
+        };
+        const handleDrop = (e, targetMachineId, isSuggestionArea) => {
+          e.preventDefault();
+          if (!draggedOrder || isCurrentDateLocked) return;
+
+          // 允許自由拖曳，不再阻擋 sourceMachineId !== targetMachineId
+
+          const { orderId } = draggedOrder;
+
+          setOrders((prevOrders) => {
+            const newOrders = [...prevOrders];
+            const draggedItemIndex = newOrders.findIndex(
+              (o) => o.id === orderId
+            );
+            if (draggedItemIndex === -1) return prevOrders;
+            const draggedItem = newOrders[draggedItemIndex];
+
+            // 從原陣列移除
+            newOrders.splice(draggedItemIndex, 1);
+
+            // 更新屬性
+            draggedItem.machineId = targetMachineId;
+            if (isSuggestionArea) draggedItem.isSuggestion = true;
+            else draggedItem.isSuggestion = false;
+
+            // 找出目標列表中的所有項目 (用以定位)
+            const targetListItems = newOrders.filter(
+              (o) =>
+                o.machineId === targetMachineId &&
+                (isSuggestionArea ? o.isSuggestion : !o.isSuggestion) &&
+                !o.isLocked
+            );
+
+            let insertIndex = newOrders.length; // 預設插在最後
+
+            if (dragOverTarget && dragOverTarget.index !== -1) {
+              // 這裡的 index 是在 map 迴圈中的 index (即 targetListItems 的 index)
+              const targetItem = targetListItems[dragOverTarget.index];
+              if (targetItem) {
+                // 找出該項目在全域 newOrders 中的位置
+                const globalIndex = newOrders.indexOf(targetItem);
+                if (globalIndex !== -1) {
+                  insertIndex =
+                    dragOverTarget.position === "after"
+                      ? globalIndex + 1
+                      : globalIndex;
+                }
+              }
+            } else if (targetListItems.length > 0) {
+              // 拖到容器但沒對準特定卡片 -> 插在該列表最後
+              const lastItem = targetListItems[targetListItems.length - 1];
+              const globalIndex = newOrders.indexOf(lastItem);
+              insertIndex = globalIndex + 1;
+            }
+
+            // 插入
+            newOrders.splice(insertIndex, 0, draggedItem);
+            return newOrders;
+          });
+
+          setDraggedOrder(null);
+          setDragOverTarget(null);
+        };
+
+        const updateOrderField = (id, field, value) => {
+          if (isCurrentDateLocked) return;
+          setOrders((prev) =>
+            prev.map((o) => (o.id === id ? { ...o, [field]: value } : o))
+          );
+        };
+        const updateMachineStartTime = (id, newTime) => {
+          if (isCurrentDateLocked) return;
+          setMachines((prev) =>
+            prev.map((m) => (m.id === id ? { ...m, startTime: newTime } : m))
+          );
+        };
+        const updateMachineEndTime = (id, newTime) => {
+          if (isCurrentDateLocked) return;
+          setMachines((prev) =>
+            prev.map((m) => (m.id === id ? { ...m, endTime: newTime } : m))
+          );
+        };
+        const updateMachineName = (id, newName) => {
+          if (isCurrentDateLocked) return;
+          setMachines((prev) =>
+            prev.map((m) => (m.id === id ? { ...m, name: newName } : m))
+          );
+        };
+        const deleteOrder = (orderId) => {
+          if (isCurrentDateLocked) return;
+          setOrders((prev) => prev.filter((o) => o.id !== orderId));
+        };
+        const updateMoldDB = (idx, field, val) => {
+          const n = [...moldDB];
+          n[idx][field] = val;
+          setMoldDB(n);
+        };
+        const addMoldRow = () => {
+          setMoldDB([
+            ...moldDB,
+            {
+              id: Date.now(),
+              colA: "",
+              colB: "",
+              colC: "",
+              colF: "",
+              colG: "",
+              colJ: "",
+            },
+          ]);
+          setTimeout(
+            () =>
+              (document.querySelector(".db-table-container").scrollTop = 99999),
+            100
+          );
+        };
+        const deleteMoldRow = (idx) => {
+          if (confirm("刪除?")) {
+            const n = [...moldDB];
+            n.splice(idx, 1);
+            setMoldDB(n);
+          }
+        };
+        const updateMachineDB = (r, c, val) => {
+          const n = [...machineDB];
+          n[r] = [...n[r]];
+          n[r][c] = val;
+          setMachineDB(n);
+        };
+        const toggleMachineDbEdit = () =>
+          setIsMachineDbEditing(!isMachineDbEditing);
+        const startEditing = (id) => setEditingId(id);
+        const saveEditing = () => setEditingId(null);
+        const addCalendarSetting = () => {
+          if (!tempCalDate) return;
+          setCalendarSettings((prev) => ({
+            ...prev,
+            [tempCalDate]: tempCalType,
+          }));
+        };
+        const removeCalendarSetting = (date) => {
+          const newSettings = { ...calendarSettings };
+          delete newSettings[date];
+          setCalendarSettings(newSettings);
+        };
+        const openMaintenanceModal = (machineId) => {
+          if (isCurrentDateLocked) return;
+          setCurrentMaintenanceMachineId(machineId);
+          // Set temp time for editing
+          const m = machines.find((mac) => mac.id === machineId);
+          if (m) {
+            setTempMachineStart(m.startTime);
+            setTempMachineEnd(m.endTime);
+          }
+          setTempMaintDate(viewDate);
+          setIsMaintenanceModalOpen(true);
+        };
+        const saveMachineSettings = () => {
+          if (!currentMaintenanceMachineId) return;
+          setMachines((prev) =>
+            prev.map((m) =>
+              m.id === currentMaintenanceMachineId
+                ? {
+                    ...m,
+                    startTime: tempMachineStart,
+                    endTime: tempMachineEnd,
+                  }
+                : m
+            )
+          );
+        };
+        const addMaintenanceRecord = () => {
+          if (!currentMaintenanceMachineId) return;
+          const newRecord = {
+            id: Date.now(),
+            machineId: currentMaintenanceMachineId,
+            date: tempMaintDate,
+            type: tempMaintType,
+            startTime: tempMaintType === "range" ? tempMaintStart : null,
+            endTime: tempMaintType === "range" ? tempMaintEnd : null,
+          };
+          setMaintenanceRecords((prev) => [...prev, newRecord]);
+        };
+        const removeMaintenanceRecord = (id) =>
+          setMaintenanceRecords((prev) => prev.filter((r) => r.id !== id));
+
+        const deleteAllOrders = () => {
+          if (confirm("確定要清空所有製造單嗎？")) {
+            setOrders([]);
+          }
+        };
+        const deleteSingleOrderInList = (id) => {
+          if (confirm("確定要刪除此製造單嗎？")) {
+            setOrders((prev) => prev.filter((o) => o.id !== id));
+          }
+        };
+        const handleFileChange = (e) => {
+          if (e.target.files && e.target.files[0])
+            setImportFile(e.target.files[0]);
+        };
+
+        // 修正後：恢復 handleDbImport 函式定義
+        const handleDbImport = (e, type) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = (evt) => {
+            try {
+              const wb = XLSX.read(evt.target.result, { type: "array" });
+              const ws = wb.Sheets[wb.SheetNames[0]];
+              const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+              if (type === "mold") {
+                if (!data.length) {
+                  alert("檔案空白");
+                  return;
+                }
+
+                // 尋找標題列 (寬鬆比對)
+                let headerIndex = -1;
+                for (let i = 0; i < Math.min(20, data.length); i++) {
+                  const rowStr = JSON.stringify(data[i]);
+                  if (
+                    rowStr.includes("品") ||
+                    rowStr.includes("名") ||
+                    rowStr.includes("No") ||
+                    rowStr.includes("Part")
+                  ) {
+                    headerIndex = i;
+                    break;
+                  }
+                }
+                if (headerIndex === -1) headerIndex = 0;
+
+                const headerRow = data[headerIndex] || [];
+                // 設定表頭 (如果 Excel 有)
+                // setDbExcelHeaders(...)
+
+                const parsed = [];
+                let validCount = 0;
+                data.slice(headerIndex + 1).forEach((row, i) => {
+                  // 只要 A 欄或 B 欄有值就視為有效資料 (不再過濾中文)
+                  const cellA = row[0];
+                  const cellB = row[1];
+                  if (cellA || cellB) {
+                    parsed.push({
+                      id: `db-${Date.now()}-${i}`,
+                      colA: cellA ? String(cellA).trim() : "",
+                      colB: cellB ? String(cellB).trim() : "",
+                      colC: row[2] ? String(row[2]) : "",
+                      colD: row[3] ? String(row[3]) : "",
+                      colE: row[4] ? String(row[4]) : "",
+                      colF: row[5] ? String(row[5]) : "",
+                      colG: row[6] ? String(row[6]) : "",
+                      colH: row[7] ? String(row[7]) : "",
+                      colI: row[8] ? String(row[8]) : "",
+                      colJ: row[9] ? String(row[9]) : "",
+                    });
+                    validCount++;
+                  }
+                });
+                if (validCount > 0) {
+                  setMoldDB(parsed);
+                  alert(`匯入成功 ${validCount} 筆參數資料`);
+                } else {
+                  alert("未找到有效資料，請確認 Excel 格式");
+                }
+              } else if (type === "machine") {
+                if (!data.length) return;
+                // 尋找機台標題列 (例如含有 'A', 'B' 或 '機台')
+                let start = -1;
+                for (let i = 0; i < Math.min(20, data.length); i++) {
+                  const row = data[i];
+                  if (
+                    row &&
+                    (row.includes("A") ||
+                      row.includes("B") ||
+                      row.includes("機台"))
+                  ) {
+                    start = i;
+                    break;
+                  }
+                }
+
+                if (start === -1) start = 0;
+                const hRow = data[start] || [];
+                // 設定機台表頭
+                setMachineDbHeaders([
+                  "項目",
+                  ...Array.from({ length: 14 }, (_, i) => hRow[i + 1] || ""),
+                ]);
+
+                const parsed = data
+                  .slice(start + 1)
+                  .map((row) => {
+                    // 確保每列都有足夠的欄位
+                    return Array.from({ length: 15 }, (_, i) =>
+                      row[i] !== undefined ? row[i] : ""
+                    );
+                  })
+                  .filter((r) => r.some((c) => c !== "")); // 過濾掉全空行
+
+                setMachineDB(parsed);
+                alert(`機台資料匯入成功`);
+              }
+            } catch (e) {
+              console.error(e);
+              alert("匯入失敗: " + e.message);
+            }
+            if (e.target) e.target.value = "";
+          };
+          reader.readAsArrayBuffer(file);
+        };
+
+        const confirmOrderImport = () => {
+          if (!importFile) return;
+          const reader = new FileReader();
+          reader.onload = (evt) => {
+            try {
+              const wb = XLSX.read(evt.target.result, { type: "array" });
+              const ws = wb.Sheets[wb.SheetNames[0]];
+              const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+              if (isOrderModalOpen) {
+                const hasMoldDB = Array.isArray(moldDB) && moldDB.length > 0;
+                let headerIndex = -1;
+                // 嘗試尋找標題列
+                for (let r = 0; r < Math.min(20, data.length); r++) {
+                  const rowStr = JSON.stringify(data[r] || []);
+                  if (
+                    rowStr.indexOf("訂") !== -1 &&
+                    rowStr.indexOf("日") !== -1 &&
+                    rowStr.indexOf("料") !== -1
+                  ) {
+                    headerIndex = r;
+                    break;
+                  }
+                }
+                if (headerIndex === -1) headerIndex = 0;
+
+                const dataRows = data.slice(headerIndex + 1);
+                const newValidOrders = [];
+
+                dataRows.forEach((row, i) => {
+                  // A:Qty, B:ProdID, C:Skip, D:Name, E:Specs, F:OrderNo, G:Date, H:Remark
+                  // 修正：1. 只讀取 A 欄有日期的數值
+                  const rawDateA = row[0];
+                  let isValidDate = false;
+                  if (typeof rawDateA === "number" && rawDateA > 20000)
+                    isValidDate = true; // Excel Serial
+                  if (
+                    typeof rawDateA === "string" &&
+                    (rawDateA.includes("/") || rawDateA.includes("-"))
+                  )
+                    isValidDate = true;
+
+                  if (!isValidDate) return; // Skip invalid rows
+
+                  // 2. 預交日讀取 A 欄 (0)
+                  const deliveryDate = parseExcelDate(rawDateA);
+
+                  // 3. 數量讀取 G 欄 (6)
+                  let qty = 0;
+                  if (typeof row[6] === "number") qty = row[6];
+                  else if (typeof row[6] === "string")
+                    qty = parseInt(row[6].replace(/[^0-9.]/g, ""), 10);
+                  if (isNaN(qty)) qty = 0;
+
+                  const rawPart = row[3]; // D
+                  if (!rawPart) return;
+
+                  const partNo = normalizeStr(rawPart);
+
+                  // E: Specs (Split by " / ")
+                  const rawColE = row[4];
+                  const parts = String(rawColE || "").split(" / ");
+                  let material = parts[0] ? parts[0].trim() : "";
+                  let sizeVal = parts[1] ? parts[1].trim() : "";
+                  let color = parts[2] ? parts[2].trim() : "";
+
+                  let orderNo = row[5]; // F
+                  const displayProductID = row[1]; // B
+                  const remark = row[7]; // H
+
+                  let mId = "m_A";
+                  if (hasMoldDB) {
+                    const dbEntry = moldDB.find(
+                      (m) => normalizeStr(m.colB) === partNo
+                    );
+                    if (dbEntry) {
+                      const weight = parseFloat(dbEntry.colG);
+                      if (!isNaN(weight) && material)
+                        mId = findBestMachine(
+                          weight,
+                          material,
+                          machineDB,
+                          MACHINE_IDS
+                        );
+                    }
+                  }
+
+                  newValidOrders.push({
+                    id: `imp-${Date.now()}-${i}-${Math.random()
+                      .toString(36)
+                      .substr(2, 5)}`,
+                    machineId: mId,
+                    isSuggestion: true,
+                    partNo,
+                    displayPartNo: rawPart,
+                    productID: displayProductID,
+                    qty,
+                    moldChange: 30,
+                    drying: 0,
+                    sizeVal,
+                    material,
+                    color,
+                    deliveryDate,
+                    orderNo,
+                    remark,
+                    isLocked: false,
+                  });
+                });
+
+                if (newValidOrders.length > 0) {
+                  const currentOrders = Array.isArray(orders) ? orders : [];
+                  const updatedOrders = [...currentOrders, ...newValidOrders];
+                  setOrders(updatedOrders);
+                  setStartDate(new Date().toISOString().split("T")[0]);
+                  setViewDate(new Date().toISOString().split("T")[0]);
+                  setIsOrderModalOpen(false);
+                  setImportFile(null);
+                  if (orderFileInputRef.current)
+                    orderFileInputRef.current.value = "";
+                  alert(
+                    `匯入完成！新增 ${newValidOrders.length} 筆製造單 (已過濾非日期資料)。`
+                  );
+                  setActiveTab("orderList");
+                } else {
+                  alert("未找到有效製造單資料。請確認 Excel 格式是否正確。");
+                }
+              }
+            } catch (e) {
+              alert("檔案讀取錯誤");
+            }
+          };
+          reader.readAsArrayBuffer(importFile);
+        };
+
+        const handlePrint = () => {
+          window.print();
+        };
+
+        const confirmSchedule = () => {
+          if (window.confirm(`確定要鎖定 ${viewDate} 的排程嗎？`)) {
+            setLockedDates((prev) => ({ ...prev, [viewDate]: true }));
+            const scheduledOrderIds = new Set();
+            machines.forEach((m) => {
+              const sch = machineSchedules[m.id];
+              sch.confirmed.forEach((o) => scheduledOrderIds.add(o.id));
+            });
+            setOrders((prev) =>
+              prev.map((o) => {
+                if (scheduledOrderIds.has(o.id)) {
+                  return { ...o, isLocked: true, scheduledDate: viewDate };
+                }
+                return o;
+              })
+            );
+          }
+        };
+        const unlockSchedule = () => {
+          setLockedDates((prev) => ({ ...prev, [viewDate]: false }));
+          setOrders((prev) =>
+            prev.map((o) => {
+              if (o.scheduledDate === viewDate) {
+                return { ...o, isLocked: false, scheduledDate: null };
+              }
+              return o;
+            })
+          );
+        };
+
+        return (
+          <div className="flex flex-col h-screen overflow-hidden app-container">
+            <header className="bg-slate-800 text-white p-3 shadow-md flex-shrink-0 z-20 no-print">
+              <div className="flex justify-between items-center max-w-[1920px] mx-auto w-full border-b border-slate-700 pb-2 mb-2">
+                <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-2">
+                    <div className="bg-blue-600 p-1 rounded">
+                      <Icon name="calendar-clock" />
+                    </div>
+                    <h1 className="text-lg font-bold">聚鴻塑膠股份有限公司</h1>
+                  </div>
+                  <div className="flex bg-slate-700 rounded-lg p-1 gap-1">
+                    <button
+                      onClick={() => setActiveTab("board")}
+                      className={`px-4 py-1.5 rounded text-sm ${
+                        activeTab === "board"
+                          ? "bg-blue-600 shadow"
+                          : "hover:text-slate-200"
+                      }`}
+                    >
+                      <Icon name="clipboard-list" size={16} /> 排程看板
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("planning")}
+                      className={`px-4 py-1.5 rounded text-sm ${
+                        activeTab === "planning"
+                          ? "bg-blue-600 shadow"
+                          : "hover:text-slate-200"
+                      }`}
+                    >
+                      <Icon name="layout-grid" size={16} /> 排程規劃
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("orderList")}
+                      className={`px-4 py-1.5 rounded text-sm ${
+                        activeTab === "orderList"
+                          ? "bg-blue-600 shadow"
+                          : "hover:text-slate-200"
+                      }`}
+                    >
+                      <Icon name="list" size={16} /> 製造單
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("database")}
+                      className={`px-4 py-1.5 rounded text-sm ${
+                        activeTab === "database"
+                          ? "bg-blue-600 shadow"
+                          : "hover:text-slate-200"
+                      }`}
+                    >
+                      <Icon name="database" size={16} /> 資料庫
+                    </button>
+                  </div>
+                </div>
+                <div className="flex gap-2 items-center">
+                  {activeTab === "planning" && (
+                    <>
+                      <button
+                        onClick={() => setIsCalendarModalOpen(true)}
+                        className="flex items-center gap-1 bg-slate-600 hover:bg-slate-500 px-3 py-1.5 rounded text-xs"
+                      >
+                        <Icon name="calendar" size={14} /> 行事曆
+                      </button>
+                      {!isCurrentDateLocked ? (
+                        <button
+                          onClick={confirmSchedule}
+                          className="flex items-center gap-1 bg-yellow-500 hover:bg-yellow-600 text-slate-900 px-3 py-1.5 rounded text-xs font-bold"
+                        >
+                          <Icon name="lock" size={14} /> 排程確認
+                        </button>
+                      ) : (
+                        <button
+                          onClick={unlockSchedule}
+                          className="flex items-center gap-1 bg-slate-600 hover:bg-slate-500 px-3 py-1.5 rounded text-xs"
+                        >
+                          <Icon name="unlock" size={14} /> 解除鎖定
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {activeTab === "orderList" && (
+                    <>
+                      <div className="flex bg-slate-700 rounded p-0.5">
+                        <button
+                          onClick={() => setOrderListMode("pending")}
+                          className={`px-3 py-1 rounded text-xs ${
+                            orderListMode === "pending"
+                              ? "bg-white text-slate-800 shadow"
+                              : "text-slate-300"
+                          }`}
+                        >
+                          未排程
+                        </button>
+                        <button
+                          onClick={() => setOrderListMode("locked")}
+                          className={`px-3 py-1 rounded text-xs ${
+                            orderListMode === "locked"
+                              ? "bg-white text-slate-800 shadow"
+                              : "text-slate-300"
+                          }`}
+                        >
+                          已鎖定
+                        </button>
+                      </div>
+                      <button
+                        onClick={deleteAllOrders}
+                        className="flex items-center gap-1 bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded text-xs"
+                      >
+                        <Icon name="trash-2" size={14} /> 清空製造單
+                      </button>
+                      <button
+                        onClick={() => setIsOrderModalOpen(true)}
+                        className="flex items-center gap-1 bg-green-600 hover:bg-green-500 px-3 py-1.5 rounded text-xs"
+                      >
+                        <Icon name="file-plus" size={14} />
+                        匯入製造單
+                      </button>
+                    </>
+                  )}
+                  {activeTab === "board" && (
+                    <button
+                      onClick={handlePrint}
+                      className="flex items-center gap-1 bg-blue-500 hover:bg-blue-600 px-3 py-1.5 rounded text-xs"
+                    >
+                      <Icon name="printer" size={14} /> 列印
+                    </button>
+                  )}
+                  {activeTab === "database" && (
+                    <button
+                      onClick={clearAllData}
+                      className="flex items-center gap-1 bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded text-xs"
+                    >
+                      <Icon name="refresh-ccw" size={14} /> 重置系統
+                    </button>
+                  )}
+                </div>
+              </div>
+              {activeTab !== "database" && activeTab !== "orderList" && (
+                <div className="flex items-center gap-4 text-xs">
+                  <div className="flex items-center gap-1 bg-slate-700 px-2 py-1 rounded">
+                    <span className="text-slate-400">檢視日期:</span>
+                    <input
+                      type="date"
+                      value={viewDate}
+                      onChange={(e) => setViewDate(e.target.value)}
+                      className="bg-slate-600 border border-slate-500 rounded px-1 text-white"
+                    />
+                    {isCurrentDateLocked && (
+                      <span className="text-yellow-400 ml-2 font-bold">
+                        (已鎖定)
+                      </span>
+                    )}
+                  </div>
+                  {activeTab === "planning" && (
+                    <>
+                      <div className="h-4 w-px bg-slate-600"></div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400">全廠時間:</span>
+                        <button
+                          onClick={() =>
+                            document.getElementById("global-start").showPicker()
+                          }
+                          className="bg-slate-600 border border-slate-500 rounded px-1 text-white w-16 text-center cursor-pointer relative"
+                        >
+                          <span className="pointer-events-none">
+                            {globalStartTime}
+                          </span>
+                          <input
+                            id="global-start"
+                            type="time"
+                            value={globalStartTime}
+                            onChange={(e) => setGlobalStartTime(e.target.value)}
+                            disabled={isCurrentDateLocked}
+                            className="absolute inset-0 opacity-0 cursor-pointer"
+                          />
+                        </button>
+                        <span>~</span>
+                        <button
+                          onClick={() =>
+                            document.getElementById("global-end").showPicker()
+                          }
+                          className="bg-slate-600 border border-slate-500 rounded px-1 text-white w-16 text-center cursor-pointer relative"
+                        >
+                          <span className="pointer-events-none">
+                            {globalEndTime}
+                          </span>
+                          <input
+                            id="global-end"
+                            type="time"
+                            value={globalEndTime}
+                            onChange={(e) => setGlobalEndTime(e.target.value)}
+                            disabled={isCurrentDateLocked}
+                            className="absolute inset-0 opacity-0 cursor-pointer"
+                          />
+                        </button>
+                        <button
+                          onClick={() => {
+                            applyGlobalStartTime();
+                            applyGlobalEndTime();
+                          }}
+                          disabled={isCurrentDateLocked}
+                          className="bg-blue-600 hover:bg-blue-500 px-2 py-1 rounded text-white ml-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          套用
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </header>
+
+            {/* 右鍵選單 */}
+            {contextMenu && (
+              <div
+                className="context-menu"
+                style={{ left: contextMenu.x, top: contextMenu.y }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <div className="context-menu-header">移動至...</div>
+                {machines.map((m) => (
+                  <div
+                    key={m.id}
+                    className="context-menu-item"
+                    onClick={() => handleQuickMove(m.id)}
+                  >
+                    {m.name}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 列印用介面 */}
+            <div id="print-area" className="print-only">
+              <div className="print-container">
+                <h1 className="print-title">
+                  聚鴻塑膠股份有限公司 - 生產排程表 ({viewDate})
+                </h1>
+                {machines.map((m) => {
+                  const sch = machineSchedules[m.id];
+                  if (sch.confirmed.length === 0) return null;
+                  return (
+                    <div key={m.id} className="print-machine-block">
+                      <div className="print-header">
+                        {m.name} ({m.startTime}~{m.endTime})
+                      </div>
+                      <table className="print-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: "10%" }}>生產時間</th>
+                            <th style={{ width: "15%" }}>訂單編號</th>
+                            <th style={{ width: "15%" }}>產品編號</th>
+                            <th style={{ width: "20%" }}>產品名稱</th>
+                            <th style={{ width: "10%" }}>規格</th>
+                            <th style={{ width: "10%" }}>數量</th>
+                            <th style={{ width: "20%" }}>備註</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sch.confirmed.map((order, idx) => (
+                            <tr key={idx}>
+                              <td className="center">
+                                {order.startTime}~{order.endTime}
+                              </td>
+                              <td>{order.orderNo || "-"}</td>
+                              <td>{order.productID || "-"}</td>
+                              <td>{order.displayPartNo}</td>
+                              <td className="center">
+                                {order.sizeVal} {order.material} {order.color}
+                              </td>
+                              <td className="num">
+                                {order.qty.toLocaleString()}
+                              </td>
+                              <td>{order.remark}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <main className="flex-1 overflow-hidden bg-slate-100 p-2 relative no-print">
+              {/* VIEW: 製造單列表 (Order List) */}
+              {activeTab === "orderList" && (
+                <div className="bg-white h-full rounded shadow border flex flex-col">
+                  <div className="p-3 border-b bg-slate-50 font-bold text-slate-700 flex justify-between items-center">
+                    <span>製造單總表IM160-JI01 ({filteredOrders.length})</span>
+                    <div className="text-xs text-slate-400 font-normal">
+                      同款製造單已用底色標示
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-auto p-0">
+                    <table className="w-full text-sm text-left border-collapse">
+                      <thead className="text-xs bg-slate-100 sticky top-0 z-10 shadow">
+                        <tr>
+                          <th
+                            className="px-3 py-2 border sortable"
+                            onClick={() => requestSort("isSuggestion")}
+                          >
+                            狀態 <Icon name="arrow-up-down" size={10} />
+                          </th>
+                          <th
+                            className="px-3 py-2 border sortable"
+                            onClick={() => requestSort("orderNo")}
+                          >
+                            訂單編號 <Icon name="arrow-up-down" size={10} />
+                          </th>
+                          <th
+                            className="px-3 py-2 border sortable"
+                            onClick={() => requestSort("productID")}
+                          >
+                            產品編號 <Icon name="arrow-up-down" size={10} />
+                          </th>
+                          <th
+                            className="px-3 py-2 border sortable"
+                            onClick={() => requestSort("displayPartNo")}
+                          >
+                            產品名稱 <Icon name="arrow-up-down" size={10} />
+                          </th>
+                          <th
+                            className="px-3 py-2 border sortable"
+                            onClick={() => requestSort("sizeVal")}
+                          >
+                            尺寸 <Icon name="arrow-up-down" size={10} />
+                          </th>
+                          <th
+                            className="px-3 py-2 border sortable"
+                            onClick={() => requestSort("material")}
+                          >
+                            材質 <Icon name="arrow-up-down" size={10} />
+                          </th>
+                          <th
+                            className="px-3 py-2 border sortable"
+                            onClick={() => requestSort("color")}
+                          >
+                            顏色 <Icon name="arrow-up-down" size={10} />
+                          </th>
+                          <th
+                            className="px-3 py-2 border sortable"
+                            onClick={() => requestSort("qty")}
+                          >
+                            數量 <Icon name="arrow-up-down" size={10} />
+                          </th>
+                          <th
+                            className="px-3 py-2 border sortable"
+                            onClick={() => requestSort("deliveryDate")}
+                          >
+                            預交日 <Icon name="arrow-up-down" size={10} />
+                          </th>
+                          <th
+                            className="px-3 py-2 border sortable"
+                            onClick={() => requestSort("remark")}
+                          >
+                            備註 <Icon name="arrow-up-down" size={10} />
+                          </th>
+                          <th
+                            className="px-3 py-2 border sortable"
+                            onClick={() => requestSort("machineId")}
+                          >
+                            分配機台 <Icon name="arrow-up-down" size={10} />
+                          </th>
+                          <th className="px-3 py-2 border w-16 text-center">
+                            操作
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {filteredOrders.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan="12"
+                              className="p-4 text-center text-slate-400"
+                            >
+                              尚無製造單資料，請點擊上方「匯入製造單」
+                            </td>
+                          </tr>
+                        ) : (
+                          sortedOrders.map((order, idx) => {
+                            const machineName =
+                              machines.find((m) => m.id === order.machineId)
+                                ?.name || "未指定";
+                            const key = `${order.displayPartNo}|${order.sizeVal}|${order.material}|${order.color}`;
+                            const isDuplicate = duplicateGroups[key] > 1;
+
+                            return (
+                              <tr
+                                key={idx}
+                                className={`border-b ${
+                                  isDuplicate
+                                    ? "bg-amber-50"
+                                    : "hover:bg-slate-50"
+                                }`}
+                              >
+                                <td className="px-3 py-2">
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-xs ${
+                                      order.isLocked
+                                        ? "bg-gray-100 text-gray-700"
+                                        : order.isSuggestion
+                                        ? "bg-amber-100 text-amber-700"
+                                        : "bg-green-100 text-green-700"
+                                    }`}
+                                  >
+                                    {order.isLocked
+                                      ? "已鎖定"
+                                      : order.isSuggestion
+                                      ? "待排程"
+                                      : "已排程"}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 font-mono text-slate-500">
+                                  {order.orderNo || "-"}
+                                </td>
+                                <td className="px-3 py-2 font-mono text-slate-500">
+                                  {order.productID || "-"}
+                                </td>
+                                <td className="px-3 py-2 font-medium text-slate-800">
+                                  {order.displayPartNo}
+                                </td>
+                                <td className="px-3 py-2">{order.sizeVal}</td>
+                                <td className="px-3 py-2">{order.material}</td>
+                                <td className="px-3 py-2">{order.color}</td>
+                                <td className="px-3 py-2 font-mono">
+                                  {order.qty}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {order.deliveryDate}
+                                </td>
+                                <td
+                                  className="px-3 py-2 text-xs text-slate-400 truncate max-w-[100px]"
+                                  title={order.remark}
+                                >
+                                  {order.remark}
+                                </td>
+                                <td className="px-3 py-2 text-slate-500">
+                                  {machineName}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <button
+                                    onClick={() =>
+                                      deleteSingleOrderInList(order.id)
+                                    }
+                                    className="text-slate-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors"
+                                    title="刪除此訂單"
+                                  >
+                                    <Icon name="trash-2" size={14} />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* VIEW: 排程看板 (Board) - 唯讀 */}
+              {activeTab === "board" && (
+                <div className="h-full overflow-y-auto bg-white p-6">
+                  <h2 className="text-xl font-bold mb-4 text-center">
+                    生產排程看板 - {viewDate}
+                  </h2>
+                  {boardViewMode === "grid" ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {machines.map((m) => {
+                        const sch = machineSchedules[m.id];
+                        return (
+                          <div
+                            key={m.id}
+                            className="border rounded-lg shadow-sm overflow-hidden break-inside-avoid"
+                          >
+                            <div className="bg-slate-100 px-4 py-2 font-bold border-b text-slate-800 flex justify-between">
+                              <span>{m.name}</span>
+                              <span className="text-xs font-normal text-slate-500">
+                                {m.startTime}~{m.endTime}
+                              </span>
+                            </div>
+                            {sch.confirmed.length > 0 ? (
+                              <table className="w-full text-sm">
+                                <thead className="bg-slate-50 text-xs text-slate-500">
+                                  <tr>
+                                    <th className="px-3 py-2 text-left w-32">
+                                      生產時間
+                                    </th>
+                                    <th className="px-3 py-2 text-left">
+                                      訂單編號
+                                    </th>
+                                    <th className="px-3 py-2 text-left">
+                                      產品名稱
+                                    </th>
+                                    <th className="px-2 py-2 text-center">
+                                      規格
+                                    </th>
+                                    <th className="px-3 py-2 text-right">
+                                      數量
+                                    </th>
+                                    <th className="px-3 py-2 text-left">
+                                      備註
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                  {sch.confirmed.map((order, idx) => (
+                                    <tr key={idx} className="hover:bg-slate-50">
+                                      <td className="px-3 py-2 whitespace-nowrap text-xs font-mono text-slate-600">
+                                        {order.startTime} ~ {order.endTime}
+                                      </td>
+                                      <td className="px-3 py-2 text-xs font-mono text-slate-500">
+                                        {order.orderNo || "-"}
+                                      </td>
+                                      <td className="px-3 py-2">
+                                        <div className="font-medium text-slate-800">
+                                          {order.displayPartNo}
+                                        </div>
+                                        {order.isContinuation && (
+                                          <span className="text-[10px] text-purple-600 bg-purple-50 px-1 rounded">
+                                            續前日
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="px-2 py-2 text-center">
+                                        <div className="flex flex-col items-center gap-1">
+                                          {order.sizeVal && (
+                                            <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 rounded">
+                                              {order.sizeVal}
+                                            </span>
+                                          )}
+                                          {order.material && (
+                                            <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 rounded">
+                                              {order.material}
+                                            </span>
+                                          )}
+                                          {order.color && (
+                                            <span className="text-[10px] bg-purple-50 text-purple-600 px-1.5 rounded">
+                                              {order.color}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td className="px-3 py-2 text-right font-mono">
+                                        {order.qty.toLocaleString()}
+                                      </td>
+                                      <td className="px-3 py-2 text-xs text-slate-400">
+                                        {order.remark}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            ) : (
+                              <div className="p-4 text-center text-slate-400 text-xs">
+                                本日無排程
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
+                      <table className="w-full text-sm text-left border-collapse">
+                        <thead className="bg-slate-100 text-slate-600 font-bold sticky top-0 z-10">
+                          <tr>
+                            <th className="px-4 py-3 border-b">機台</th>
+                            <th className="px-4 py-3 border-b">生產時間</th>
+                            <th className="px-4 py-3 border-b">訂單編號</th>
+                            <th className="px-4 py-3 border-b">產品編號</th>
+                            <th className="px-4 py-3 border-b">產品名稱</th>
+                            <th className="px-4 py-3 border-b text-center">
+                              規格
+                            </th>
+                            <th className="px-4 py-3 border-b text-right">
+                              數量
+                            </th>
+                            <th className="px-4 py-3 border-b">備註</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {machines.map((m) => {
+                            const sch = machineSchedules[m.id];
+                            if (!sch || sch.confirmed.length === 0) return null;
+                            return sch.confirmed.map((order, idx) => (
+                              <tr
+                                key={`${m.id}-${idx}`}
+                                className="hover:bg-slate-50"
+                              >
+                                <td className="px-4 py-2 font-bold text-slate-700 border-r bg-slate-50/50">
+                                  {idx === 0 ? m.name : ""}
+                                </td>
+                                <td className="px-4 py-2 font-mono text-xs">
+                                  {order.startTime} ~ {order.endTime}
+                                </td>
+                                <td className="px-4 py-2 font-mono text-xs text-slate-500">
+                                  {order.orderNo || "-"}
+                                </td>
+                                <td className="px-4 py-2 font-mono text-xs text-slate-500">
+                                  {order.productID || "-"}
+                                </td>
+                                <td className="px-4 py-2 font-medium">
+                                  {order.displayPartNo}
+                                </td>
+                                <td className="px-4 py-2 text-center text-xs">
+                                  <span className="bg-gray-100 text-gray-600 px-1 rounded mr-1">
+                                    {order.sizeVal}
+                                  </span>
+                                  <span className="bg-blue-50 text-blue-600 px-1 rounded mr-1">
+                                    {order.material}
+                                  </span>
+                                  <span className="bg-purple-50 text-purple-600 px-1 rounded">
+                                    {order.color}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2 text-right font-mono">
+                                  {order.qty.toLocaleString()}
+                                </td>
+                                <td className="px-4 py-2 text-xs text-slate-400">
+                                  {order.remark}
+                                </td>
+                              </tr>
+                            ));
+                          })}
+                          {machines.every(
+                            (m) => !machineSchedules[m.id]?.confirmed.length
+                          ) && (
+                            <tr>
+                              <td
+                                colSpan="8"
+                                className="p-8 text-center text-slate-400"
+                              >
+                                本日無排程資料
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* VIEW: 排程規劃 (Planning) - 保持原樣 */}
+              {activeTab === "planning" && (
+                <div className="flex h-full gap-2 overflow-x-auto overflow-y-hidden pb-2">
+                  {machines.map((m) => {
+                    const sch = machineSchedules[m.id];
+                    const isMaint = sch.maintenance.isFullDay;
+                    return (
+                      <div
+                        key={m.id}
+                        className="flex flex-col w-[200px] bg-white rounded-lg shadow border border-slate-300 h-full flex-shrink-0"
+                      >
+                        {/* Suggestion Area (Top) */}
+                        <div
+                          className={`suggestion-area ${
+                            dragOverTarget?.machineId === m.id &&
+                            dragOverTarget?.isSuggestionArea
+                              ? "drag-over"
+                              : ""
+                          }`}
+                          onDragOver={(e) => handleDragOver(e, m.id, true)}
+                          onDrop={(e) => handleDrop(e, m.id, true)}
+                        >
+                          <div className="text-[10px] text-amber-600 font-bold text-center border-b border-amber-100 p-1">
+                            建議排程
+                          </div>
+                          {sch.suggested.map((o) => (
+                            <div
+                              key={o.id}
+                              draggable
+                              onDragStart={(e) =>
+                                handleDragStart(e, o.id, m.id)
+                              }
+                              className="order-card suggestion"
+                            >
+                              <div className="flex justify-between items-center">
+                                <span
+                                  className="font-bold truncate w-24"
+                                  title={o.displayPartNo}
+                                >
+                                  {o.displayPartNo}
+                                </span>
+                                <button
+                                  onClick={() => deleteOrder(o.id)}
+                                  className="text-red-400 hover:text-red-600"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                              <div className="flex gap-1 text-[10px]">
+                                <span className="badge badge-gray">
+                                  {o.sizeVal}
+                                </span>
+                                <span className="badge badge-purple">
+                                  {o.color}
+                                </span>
+                              </div>
+                              <div className="text-xs text-slate-500 mt-1">
+                                Q:{o.qty} ({formatDuration(o.totalDuration)})
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Header */}
+                        <div className="p-2 border-y bg-slate-100 font-bold text-center text-sm flex justify-between items-center">
+                          <span>{m.name}</span>
+                          <button onClick={() => openMaintenanceModal(m.id)}>
+                            <Icon
+                              name="settings"
+                              size={12}
+                              className="text-slate-400"
+                            />
+                          </button>
+                        </div>
+                        <div className="bg-slate-50 text-[10px] text-center text-slate-500 py-1">
+                          {m.startTime} ~ {m.endTime}
+                        </div>
+
+                        {/* Confirmed Area (Bottom) */}
+                        <div
+                          className={`confirmed-area ${
+                            dragOverTarget?.machineId === m.id &&
+                            !dragOverTarget?.isSuggestionArea
+                              ? "drag-over"
+                              : ""
+                          }`}
+                          onDragOver={(e) => handleDragOver(e, m.id, false)}
+                          onDrop={(e) => handleDrop(e, m.id, false)}
+                        >
+                          {sch.confirmed.map((o) => (
+                            <div
+                              key={o.id}
+                              draggable
+                              onDragStart={(e) =>
+                                handleDragStart(e, o.id, m.id)
+                              }
+                              className="order-card scheduled"
+                            >
+                              <div className="flex justify-between text-[10px] text-slate-500">
+                                <span>
+                                  {o.startTime}~{o.endTime}
+                                </span>
+                                <button
+                                  onClick={() => deleteOrder(o.id)}
+                                  className="text-red-400 hover:text-red-600"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                              <div
+                                className="font-bold truncate"
+                                title={o.displayPartNo}
+                              >
+                                {o.displayPartNo}
+                              </div>
+                              <div className="flex justify-between items-end mt-1">
+                                <span className="badge badge-gray">
+                                  {o.sizeVal}
+                                </span>
+                                <span className="text-xs font-mono">
+                                  Q:{o.qty}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                          {sch.confirmed.length === 0 && (
+                            <div className="h-full flex items-center justify-center text-slate-300 text-xs">
+                              空閒
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* 資料庫頁面 (代碼保持不變) */}
+              {activeTab === "database" && (
+                <div className="bg-white h-full rounded shadow border flex flex-col no-print">
+                  <div className="p-2 border-b flex justify-between items-center bg-slate-50">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setActiveDbTab("mold")}
+                        className={`px-3 py-1 text-xs rounded ${
+                          activeDbTab === "mold"
+                            ? "bg-blue-100 text-blue-700"
+                            : "text-slate-500"
+                        }`}
+                      >
+                        成型參數
+                      </button>
+                      <button
+                        onClick={() => setActiveDbTab("machine")}
+                        className={`px-3 py-1 text-xs rounded ${
+                          activeDbTab === "machine"
+                            ? "bg-amber-100 text-amber-700"
+                            : "text-slate-500"
+                        }`}
+                      >
+                        機台資料
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {activeDbTab === "mold" && (
+                        <>
+                          <label className="flex items-center gap-1 bg-slate-600 hover:bg-slate-500 px-3 py-1.5 rounded text-xs text-white cursor-pointer">
+                            <Icon name="upload" size={14} />
+                            匯入參數
+                            <input
+                              type="file"
+                              onChange={(e) => handleDbImport(e, "mold")}
+                              className="hidden"
+                              ref={moldFileInputRef}
+                            />
+                          </label>
+                          <button
+                            onClick={addMoldRow}
+                            className="text-xs border px-2 py-1 rounded bg-white hover:bg-slate-50 flex items-center gap-1"
+                          >
+                            <Icon name="plus" size={14} />
+                            新增
+                          </button>
+                        </>
+                      )}
+                      {activeDbTab === "machine" && (
+                        <>
+                          <label className="flex items-center gap-1 bg-amber-600 hover:bg-amber-500 px-3 py-1.5 rounded text-xs text-white cursor-pointer">
+                            <Icon name="upload" size={14} />
+                            匯入機台
+                            <input
+                              type="file"
+                              onChange={(e) => handleDbImport(e, "machine")}
+                              className="hidden"
+                              ref={machineFileInputRef}
+                            />
+                          </label>
+                          <button
+                            onClick={toggleMachineDbEdit}
+                            className={`text-xs border px-2 py-1 rounded flex items-center gap-1 ${
+                              isMachineDbEditing
+                                ? "bg-green-100 text-green-700"
+                                : "bg-white hover:bg-slate-50"
+                            }`}
+                          >
+                            <Icon
+                              name={isMachineDbEditing ? "check" : "pencil"}
+                              size={14}
+                            />
+                            {isMachineDbEditing ? "完成" : "編輯"}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-auto db-table-container">
+                    {activeDbTab === "mold" && (
+                      <table className="w-full text-sm text-left border-collapse">
+                        <thead className="text-xs bg-slate-100 sticky top-0 z-10 shadow">
+                          <tr>
+                            <th className="px-2 py-1 border">#</th>
+                            {COLUMN_LABELS.map((l) => (
+                              <th key={l} className="px-2 py-1 border">
+                                {l}
+                              </th>
+                            ))}
+                            <th className="px-2 py-1 border">Act</th>
+                          </tr>
+                          <tr>
+                            <th className="px-2 py-1 border bg-slate-50"></th>
+                            {dbExcelHeaders.map((h, i) => (
+                              <th
+                                key={i}
+                                className="px-2 py-1 border text-blue-600 bg-slate-50"
+                              >
+                                {h}
+                              </th>
+                            ))}
+                            <th className="px-2 py-1 border bg-slate-50"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {moldDB.map((r, i) => (
+                            <tr key={r.id} className="hover:bg-slate-50">
+                              <td className="px-1 border text-center">
+                                {i + 1}
+                              </td>
+                              {[
+                                "A",
+                                "B",
+                                "C",
+                                "D",
+                                "E",
+                                "F",
+                                "G",
+                                "H",
+                                "I",
+                                "J",
+                              ].map((k) => (
+                                <td key={k} className="border px-1">
+                                  {editingId === r.id ? (
+                                    <input
+                                      value={r[`col${k}`]}
+                                      onChange={(e) =>
+                                        updateMoldDB(
+                                          i,
+                                          `col${k}`,
+                                          e.target.value
+                                        )
+                                      }
+                                      className="w-full"
+                                    />
+                                  ) : (
+                                    <span className="block truncate">
+                                      {r[`col${k}`]}
+                                    </span>
+                                  )}
+                                </td>
+                              ))}
+                              <td className="border text-center">
+                                {editingId === r.id ? (
+                                  <button
+                                    onClick={() => setEditingId(null)}
+                                    className="text-green-600"
+                                  >
+                                    OK
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => setEditingId(r.id)}
+                                    className="text-blue-600"
+                                  >
+                                    Edit
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => deleteMoldRow(i)}
+                                  className="text-red-500 ml-1"
+                                >
+                                  Del
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                    {activeDbTab === "machine" && (
+                      <table className="w-full text-sm text-left border-collapse">
+                        <thead className="text-xs bg-amber-100 sticky top-0 z-10 shadow">
+                          <tr>
+                            {DEFAULT_MACHINE_HEADERS.map((h, i) => (
+                              <th
+                                key={i}
+                                className="px-2 py-1 border border-amber-200"
+                              >
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {machineDB.map((row, rIdx) => {
+                            const isMerged = String(row[0] || "").includes(
+                              "最適模重"
+                            );
+                            return (
+                              <tr key={rIdx} className="hover:bg-slate-50">
+                                {row.map((cell, cIdx) => {
+                                  if (isMerged) {
+                                    if (cIdx === 0)
+                                      return (
+                                        <td
+                                          key={cIdx}
+                                          className="border px-2 py-1 font-bold bg-slate-100"
+                                        >
+                                          {cell}
+                                        </td>
+                                      );
+                                    if (cIdx === 1)
+                                      return (
+                                        <td
+                                          key={cIdx}
+                                          colSpan={14}
+                                          className="border px-2 py-1 text-center bg-amber-50 font-bold"
+                                        >
+                                          最適模重參數表
+                                        </td>
+                                      );
+                                    return null;
+                                  }
+                                  return (
+                                    <td
+                                      key={cIdx}
+                                      className={`border px-1 ${
+                                        cIdx === 0
+                                          ? "font-bold bg-slate-50"
+                                          : ""
+                                      }`}
+                                    >
+                                      {isMachineDbEditing && cIdx > 0 ? (
+                                        <input
+                                          value={cell}
+                                          onChange={(e) => {
+                                            const n = [...machineDB];
+                                            n[rIdx][cIdx] = e.target.value;
+                                            setMachineDB(n);
+                                          }}
+                                          className="w-full text-center"
+                                        />
+                                      ) : (
+                                        <span className="block text-center">
+                                          {cIdx > 0
+                                            ? formatMachineValue(cell)
+                                            : cell}
+                                        </span>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              )}
+            </main>
+
+            {/* Modals: Import, Maintenance, Calendar (略，保持不變) */}
+            {isOrderModalOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                <div className="bg-white p-6 rounded shadow-lg">
+                  <h3 className="text-lg font-bold mb-4">匯入製造單</h3>
+                  <div className="w-full border-2 border-dashed border-slate-300 rounded-lg p-8 flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 mb-4 group relative">
+                    <input
+                      type="file"
+                      onChange={handleFileChange}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                      accept=".xlsx, .xls"
+                    />
+                    {importFile ? (
+                      <div className="flex items-center gap-2 text-green-600">
+                        <Icon name="file-check" size={24} />
+                        {importFile.name}
+                      </div>
+                    ) : (
+                      <div className="text-center text-slate-400">
+                        <Icon
+                          name="upload-cloud"
+                          size={32}
+                          className="mx-auto mb-2"
+                        />
+                        點擊或拖曳檔案至此
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => {
+                        setIsOrderModalOpen(false);
+                        setImportFile(null);
+                      }}
+                      className="px-4 py-2 border rounded hover:bg-slate-50"
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={confirmOrderImport}
+                      disabled={!importFile}
+                      className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                    >
+                      匯入
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            {isCalendarModalOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                <div className="bg-white p-6 rounded shadow-lg w-96">
+                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                    <Icon name="calendar" /> 行事曆設定
+                  </h3>
+                  <div className="mb-4 text-sm text-slate-500">
+                    預設規則：週六、週日為休假，週一至週五為工作日。在此新增例外規則。
+                  </div>
+                  <div className="flex gap-2 mb-2">
+                    <input
+                      type="date"
+                      value={tempCalDate}
+                      onChange={(e) => setTempCalDate(e.target.value)}
+                      className="border rounded px-2 py-1 flex-1"
+                    />
+                    <select
+                      value={tempCalType}
+                      onChange={(e) => setTempCalType(e.target.value)}
+                      className="border rounded px-2 py-1"
+                    >
+                      <option value="off">休假</option>
+                      <option value="work">加班</option>
+                    </select>
+                    <button
+                      onClick={addCalendarSetting}
+                      className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-500"
+                    >
+                      新增
+                    </button>
+                  </div>
+                  <div className="h-48 overflow-y-auto border rounded bg-slate-50 p-2 space-y-1">
+                    {Object.keys(calendarSettings).length === 0 && (
+                      <div className="text-center text-slate-400 text-xs py-4">
+                        無特殊設定
+                      </div>
+                    )}
+                    {Object.entries(calendarSettings)
+                      .sort()
+                      .map(([date, type]) => (
+                        <div
+                          key={date}
+                          className="flex justify-between items-center bg-white p-2 rounded shadow-sm text-sm"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono">{date}</span>
+                            <span
+                              className={`px-2 py-0.5 rounded text-xs ${
+                                type === "work"
+                                  ? "bg-green-100 text-green-700"
+                                  : "bg-red-100 text-red-700"
+                              }`}
+                            >
+                              {type === "work" ? "加班" : "休假"}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => removeCalendarSetting(date)}
+                            className="text-slate-400 hover:text-red-500"
+                          >
+                            <Icon name="trash-2" size={14} />
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                  <div className="flex justify-end gap-2 mt-4">
+                    <button
+                      onClick={() => setIsCalendarModalOpen(false)}
+                      className="px-4 py-2 border rounded hover:bg-slate-50"
+                    >
+                      關閉
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            {isMaintenanceModalOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                <div className="bg-white p-6 rounded shadow-lg w-96">
+                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                    <Icon name="settings" /> 機台維護/關機設定
+                  </h3>
+                  <div className="mb-4">
+                    <label className="block text-xs font-bold mb-1">每日運作時間</label>
+                    <div className="flex gap-2">
+                        <input type="time" value={tempMachineStart} onChange={(e)=>setTempMachineStart(e.target.value)} className="border rounded px-2 py-1 w-full text-sm"/>
+                        <span className="self-center">~</span>
+                        <input type="time" value={tempMachineEnd} onChange={(e)=>setTempMachineEnd(e.target.value)} className="border rounded px-2 py-1 w-full text-sm"/>
+                    </div>
+                    <button onClick={()=>{ saveMachineSettings(); alert("機台時間已更新"); }} className="mt-2 bg-blue-600 text-white px-3 py-1 rounded text-xs w-full">儲存時間設定</button>
+                  </div>
+                  <hr className="my-4"/>
+                  <h4 className="text-sm font-bold mb-2">維護/關機設定</h4>
+                  <div className="mb-2 text-sm text-slate-600">
+                    機台:{" "}
+                    {
+                      machines.find((m) => m.id === currentMaintenanceMachineId)
+                        ?.name
+                    }
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    <label className="text-xs">
+                      日期{" "}
+                      <input
+                        type="date"
+                        value={tempMaintDate}
+                        onChange={(e) => setTempMaintDate(e.target.value)}
+                        className="border rounded px-2 py-1 w-full"
+                      />
+                    </label>
+                    <div className="flex gap-4 text-sm">
+                      <label className="flex items-center gap-1">
+                        <input
+                          type="radio"
+                          checked={tempMaintType === "full"}
+                          onChange={() => setTempMaintType("full")}
+                        />{" "}
+                        整天關機
+                      </label>
+                      <label className="flex items-center gap-1">
+                        <input
+                          type="radio"
+                          checked={tempMaintType === "range"}
+                          onChange={() => setTempMaintType("range")}
+                        />{" "}
+                        指定時段
+                      </label>
+                    </div>
+                    {tempMaintType === "range" && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <input
+                          type="time"
+                          value={tempMaintStart}
+                          onChange={(e) => setTempMaintStart(e.target.value)}
+                          className="border rounded px-2 py-1"
+                        />
+                        <span>~</span>
+                        <input
+                          type="time"
+                          value={tempMaintEnd}
+                          onChange={(e) => setTempMaintEnd(e.target.value)}
+                          className="border rounded px-2 py-1"
+                        />
+                      </div>
+                    )}
+                    <button
+                      onClick={addMaintenanceRecord}
+                      className="bg-amber-600 text-white px-3 py-1.5 rounded hover:bg-amber-500 text-sm"
+                    >
+                      新增設定
+                    </button>
+                  </div>
+                  <div className="mt-4 border-t pt-2">
+                    <h4 className="text-xs font-bold mb-2">已設定項目</h4>
+                    <div className="h-32 overflow-y-auto space-y-1">
+                      {maintenanceRecords
+                        .filter(
+                          (r) => r.machineId === currentMaintenanceMachineId
+                        )
+                        .map((r) => (
+                          <div
+                            key={r.id}
+                            className="flex justify-between bg-slate-50 p-2 rounded text-xs border"
+                          >
+                            <span>
+                              {r.date}{" "}
+                              {r.type === "full"
+                                ? "整天"
+                                : `${r.startTime}~${r.endTime}`}
+                            </span>
+                            <button
+                              onClick={() => removeMaintenanceRecord(r.id)}
+                              className="text-red-500"
+                            >
+                              <Icon name="trash-2" size={12} />
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                  <div className="flex justify-end mt-4">
+                    <button
+                      onClick={() => setIsMaintenanceModalOpen(false)}
+                      className="px-4 py-2 border rounded hover:bg-slate-50"
+                    >
+                      關閉
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
